@@ -517,8 +517,55 @@ function handleHttpRequest(req, res) {
         }
     }
 
+    // ==================== /sub 订阅端点 ====================
     // 检查是否为有效的 UUID 路径
     const pathParts = path.split('/').filter(p => p);
+
+    if (pathParts.length >= 2 && pathParts[1] === 'sub') {
+        const requestUuid = pathParts[0];
+
+        // 验证 UUID
+        if (!isValidFormat(requestUuid) || requestUuid.toLowerCase() !== at.toLowerCase()) {
+            res.writeHead(403);
+            res.end('Forbidden');
+            return;
+        }
+
+        console.log('[订阅] 生成订阅内容...');
+
+        // 获取请求的 host
+        const host = req.headers.host || `localhost:${PORT}`;
+        const target = url.searchParams.get('target') || 'base64';
+
+        // 生成 VLESS 链接
+        const vlessLink = `vless://${at}@${host}:443?encryption=none&security=tls&sni=${host}&fp=chrome&type=ws&host=${host}&path=${encodeURIComponent('/?ed=2048')}#赛博代理-${host}`;
+
+        console.log(`[订阅] 目标格式: ${target}`);
+        console.log(`[订阅] 生成链接: ${vlessLink.substring(0, 60)}...`);
+
+        if (target === 'base64') {
+            // Base64 编码的订阅
+            const base64Content = Buffer.from(vlessLink, 'utf-8').toString('base64');
+            res.writeHead(200, {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'no-cache',
+                'subscription-userinfo': 'upload=0; download=0; total=10737418240; expire=0'
+            });
+            res.end(base64Content);
+        } else {
+            // 纯文本格式
+            res.writeHead(200, {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'no-cache'
+            });
+            res.end(vlessLink);
+        }
+
+        console.log('[订阅] 订阅内容已发送');
+        return;
+    }
+
+    // 检查 UUID 路径显示 UI
 
     if (pathParts.length >= 1) {
         const potentialUuid = pathParts[0];
