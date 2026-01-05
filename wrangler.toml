@@ -1,0 +1,8 @@
+name = "docker-worker"
+main = "src/index.js"
+compatibility_date = "2023-10-25"
+node_compat = true
+
+[vars]
+# 在这里配置环境变量
+# UUID = "d2b5ce3b-67f1-4bb2-93ac-15c9e2a786e2"
