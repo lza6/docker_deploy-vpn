@@ -1,11 +1,21 @@
 {
-    "name": "worker-docker",
-    "version": "1.0.0",
+    "name": "cyber-proxy-docker",
+    "version": "3.0.0",
+    "description": "赛博代理 V3 - Docker 版本 (支持爪云等容器平台)",
+    "type": "module",
     "private": true,
     "scripts": {
-        "start": "wrangler dev --local --host 0.0.0.0 --port 8787 src/index.js"
+        "start": "node src/server.js",
+        "dev": "node --watch src/server.js",
+        "wrangler": "wrangler dev --local --host 0.0.0.0 --port 8787 src/index.js"
     },
     "dependencies": {
+        "ws": "^8.16.0"
+    },
+    "devDependencies": {
         "wrangler": "^3.19.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
     }
 }

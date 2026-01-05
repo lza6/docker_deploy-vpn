@@ -1,22 +1,38 @@
 version: '3.8'
 
 services:
-  worker:
+  cyber-proxy:
     build: .
-    container_name: cloudflare-worker-proxy
+    container_name: cyber-proxy-v3
     restart: unless-stopped
     ports:
       - "8787:8787"
     environment:
-      # 在这里配置环境变量，覆盖 wrangler.toml 中的设置
+      # ===== 必须配置 =====
+      # 您的 UUID（用户标识）
       - UUID=d2b5ce3b-67f1-4bb2-93ac-15c9e2a786e2
-      - PROXYIP=1.2.3.4
-    volumes:
-      - ./src:/app/src
-      - ./wrangler.toml:/app/wrangler.toml
+      
+      # ===== 可选配置 =====
+      # 代理IP（留空则自动选择）
+      # - PROXYIP=1.2.3.4:443
+      
+      # 服务器区域（影响节点选择）
+      - REGION=JP
+      
+      # 自定义路径别名（可选）
+      # - PATH_ALIAS=mypath
+      
+      # 端口（通常不需要修改）
+      - PORT=8787
+      - HOST=0.0.0.0
+
     # 健康检查
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8787/"]
       interval: 30s
       timeout: 10s
       retries: 3
+
+# 如需持久化配置，取消下面的注释
+# volumes:
+#   - ./data:/app/data

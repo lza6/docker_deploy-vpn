@@ -1,40 +1,66 @@
-# Cloudflare Worker Docker 部署指南
+# 赛博代理 V3 - Docker 版
 
-此目录包含了将 Cloudflare Worker 脚本部署到 Docker 容器中所需的所有文件。我们使用 `wrangler dev` 本地模式来模拟 Worker 运行环境。
+## 功能特点
 
-## 目录结构
-- `Dockerfile`: 构建 Docker 镜像的配置文件
-- `package.json`: 定义依赖 (Wrangler) 和启动脚本
-- `wrangler.toml`: Wrangler 配置文件
-- `src/index.js`: 您的 Worker 脚本 (已包含所有优化)
+- ✅ **原生 Node.js** - 不依赖 Cloudflare 特定模块
+- ✅ **完整 VLESS 支持** - WebSocket + TCP 转发
+- ✅ **中文 UI** - 赛博朋克风格界面
+- ✅ **多平台兼容** - 支持爪云、Railway、自建 VPS 等
 
-## 部署步骤
+## 快速部署
 
-### 1. 构建镜像
-
-在 `docker_deploy` 目录下打开终端，运行：
+### 方法一：Docker Compose（推荐）
 
 ```bash
-docker build -t my-cf-worker .
+# 1. 修改 docker-compose.yml 中的 UUID
+# 2. 启动
+docker-compose up -d --build
+
+# 查看日志
+docker-compose logs -f
 ```
 
-### 2. 运行容器
-
-运行容器并映射端口 8787：
+### 方法二：直接运行
 
 ```bash
-docker run -d -p 8787:8787 --name my-worker my-cf-worker
+# 安装依赖
+npm install
+
+# 启动服务
+npm start
 ```
 
-### 3. 本地访问
+## 环境变量
 
-容器启动后，您可以通过以下地址访问：
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `UUID` | 用户标识 | 随机生成 |
+| `PROXYIP` | 代理IP (可选) | 自动选择 |
+| `REGION` | 服务器区域 | JP |
+| `PORT` | 监听端口 | 8787 |
+| `PATH_ALIAS` | 自定义路径 | 无 |
 
-- 首页: `http://localhost:8787/` (或者您的服务器 IP)
-- 订阅: `http://localhost:8787/{UUID}`
+## 访问服务
 
-### 4. 环境变量配置
+- **UI 面板**: `http://your-domain:8787/你的UUID/`
+- **API**: `http://your-domain:8787/你的UUID/api/config`
 
-如果您需要修改环境变量（如 UUID），可以在 `wrangler.toml` 中的 `[vars]` 部分添加，或者修改 `src/index.js` 中的默认值。
+## 爪云部署
 
-注意：由于是在本地 Node.js 环境中模拟 Worker，部分 Cloudflare 特有功能（如全球分布、KV 分布式特性）仅为本地模拟版本，适合个人部署使用。
+1. 创建 **Devbox** (Node.js 18)
+2. 上传 `docker_deploy` 文件夹
+3. 运行 `npm install && npm start`
+4. 暴露端口 8787
+
+## 文件结构
+
+```
+docker_deploy/
+├── src/
+│   ├── server.js        # 主服务器入口
+│   ├── socket-adapter.js # TCP Socket 适配层
+│   └── ui.js            # 中文 UI
+├── Dockerfile
+├── docker-compose.yml
+└── package.json
+```

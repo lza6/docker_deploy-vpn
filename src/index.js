@@ -1,5 +1,6 @@
 import { getPageHtml } from './ui.js';
-import { connect as rawConnect } from 'cloudflare:sockets';
+// 使用 Node.js 原生 TCP Socket 适配层替代 cloudflare:sockets
+import { connect as rawConnect } from './socket-adapter.js';
 
 let at = 'd2b5ce3b-67f1-4bb2-93ac-15c9e2a786e2';
 let fallbackAddress = '';
