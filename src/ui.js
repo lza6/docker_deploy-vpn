@@ -257,6 +257,17 @@ node.example.com:8443
 • IP:Port 格式 (如 1.2.3.4:443)
 每行一个，或直接粘贴 Base64 订阅"></textarea>
                 </div>
+                
+                <div class="input-group">
+                    <label>输出格式</label>
+                    <select id="convertFormat" style="width:100%; background:rgba(0,0,0,0.4); border:1px solid #333; color:#fff; padding:10px;">
+                        <option value="vless">VLESS 链接 (通用)</option>
+                        <option value="clash">Clash 配置</option>
+                        <option value="v2ray">V2Ray/Xray JSON</option>
+                        <option value="surge">Surge 配置</option>
+                        <option value="base64">Base64 订阅</option>
+                    </select>
+                </div>
 
                 <button onclick="convertSubscription()">🔄 转换并中转</button>
                 <div id="convertResult" style="margin-top:15px;"></div>
@@ -296,6 +307,16 @@ node.example.com:8443
             toast.textContent = msg;
             toast.classList.add('show');
             setTimeout(function() { toast.classList.remove('show'); }, 3000);
+        }
+
+        // UTF-8 安全的 Base64 编码
+        function safeBase64Encode(str) {
+            try {
+                return btoa(unescape(encodeURIComponent(str)));
+            } catch(e) {
+                log('Base64编码失败: ' + e.message, 'error');
+                return '';
+            }
         }
 
         function copyToClipboard(text) {
@@ -409,11 +430,40 @@ node.example.com:8443
                 var addr = line.trim();
                 if (!addr) return;
                 
-                // 解析地址和端口
-                var host, port;
+                var host, port, protocol = '';
+                
+                // 检查是否有协议前缀
+                var protocols = ['socks5://', 'socks://', 'http://', 'https://', 'vless://', 'vmess://', 'trojan://', 'ss://', 'ssr://'];
+                for (var i = 0; i < protocols.length; i++) {
+                    if (addr.toLowerCase().indexOf(protocols[i]) === 0) {
+                        protocol = protocols[i].replace('://', '').toUpperCase();
+                        addr = addr.substring(protocols[i].length);
+                        break;
+                    }
+                }
+                
+                // 移除 # 后面的备注
+                var hashIdx = addr.indexOf('#');
+                if (hashIdx > -1) {
+                    addr = addr.substring(0, hashIdx);
+                }
+                
+                // 移除 ? 后面的参数
+                var queryIdx = addr.indexOf('?');
+                if (queryIdx > -1) {
+                    addr = addr.substring(0, queryIdx);
+                }
+                
+                // 如果有 @ 符号，取 @ 后面的部分（处理 user:pass@host:port 格式）
+                var atIdx = addr.indexOf('@');
+                if (atIdx > -1) {
+                    addr = addr.substring(atIdx + 1);
+                }
+                
+                // 解析 host:port
                 if (addr.indexOf('[') === 0) {
                     // IPv6
-                    var match = addr.match(/^\[([^\]]+)\]:?(\d*)$/);
+                    var match = addr.match(/^\\[([^\\]]+)\\]:?(\\d*)$/);
                     if (match) {
                         host = match[1];
                         port = match[2] || '443';
@@ -431,28 +481,81 @@ node.example.com:8443
                 
                 if (!host) return;
                 
-                // 生成中转链接
+                // 生成中转链接 - 用户代理客户端会通过我们的容器连接到目标节点
                 var relayLink = 'vless://' + CONFIG.uuid + '@' + CONFIG.host + ':443?' +
                     'encryption=none&security=tls&sni=' + CONFIG.host +
                     '&fp=chrome&type=ws&host=' + CONFIG.host +
                     '&path=' + encodeURIComponent('/?ed=2048&proxyip=' + host + ':' + port) +
-                    '#中转-' + name + '-' + (index + 1);
+                    '#' + encodeURIComponent('中转-' + name + '-' + (index + 1));
                 
                 allLinks.push(relayLink);
                 
-                // 显示结果
+                // 显示结果 - 显示完整的中转链接
                 var item = document.createElement('div');
                 item.className = 'relay-item';
-                item.innerHTML = '<div style="flex:1;">' +
-                    '<div class="relay-name">' + name + '-' + (index + 1) + '</div>' +
-                    '<div class="relay-url">' + host + ':' + port + '</div>' +
-                    '</div>' +
-                    '<button onclick="copyToClipboard(\\'' + relayLink.replace(/'/g, "\\'") + '\\')">复制</button>';
+                item.style.cssText = 'flex-direction:column; align-items:stretch;';
+                var protocolBadge = protocol ? '<span style="background:rgba(0,200,255,0.2);padding:2px 6px;border-radius:3px;font-size:0.7rem;margin-right:8px;">' + protocol + '</span>' : '';
+                
+                // 头部信息
+                var header = document.createElement('div');
+                header.style.cssText = 'display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;';
+                header.innerHTML = '<div class="relay-name">' + protocolBadge + name + '-' + (index + 1) + '</div>';
+                
+                var copyBtn = document.createElement('button');
+                copyBtn.textContent = '复制链接';
+                copyBtn.style.cssText = 'padding:6px 12px; font-size:0.8rem;';
+                copyBtn.onclick = (function(link) {
+                    return function() { copyToClipboard(link); };
+                })(relayLink);
+                header.appendChild(copyBtn);
+                item.appendChild(header);
+                
+                // 原始目标
+                var originalDiv = document.createElement('div');
+                originalDiv.style.cssText = 'font-size:0.75rem; color:#888; margin-bottom:4px;';
+                originalDiv.textContent = '原始节点: ' + host + ':' + port;
+                item.appendChild(originalDiv);
+                
+                // 中转链接预览（截断显示）
+                var linkPreview = document.createElement('div');
+                linkPreview.style.cssText = 'font-size:0.75rem; color:var(--neon-primary); word-break:break-all; background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; margin-top:4px;';
+                linkPreview.textContent = 'vless://' + CONFIG.uuid.substring(0,8) + '...@' + CONFIG.host + ':443?...proxyip=' + host + ':' + port;
+                item.appendChild(linkPreview);
+                
+                // 说明
+                var noteDiv = document.createElement('div');
+                noteDiv.style.cssText = 'font-size:0.7rem; color:var(--neon-secondary); margin-top:6px;';
+                noteDiv.innerHTML = '✅ 用户通过您的容器连接此节点，绕过封锁';
+                item.appendChild(noteDiv);
+                
                 resultDiv.appendChild(item);
             });
             
             // 存储所有链接用于批量复制
             resultDiv.dataset.allLinks = allLinks.join('\\n');
+            
+            // 添加批量操作按钮
+            if (allLinks.length > 0) {
+                var btnDiv = document.createElement('div');
+                btnDiv.style.cssText = 'margin-top:15px; display:flex; gap:10px; flex-wrap:wrap;';
+                
+                var copyAllBtn = document.createElement('button');
+                copyAllBtn.className = 'secondary';
+                copyAllBtn.textContent = '📋 复制全部链接';
+                copyAllBtn.onclick = function() { copyToClipboard(allLinks.join('\\n')); };
+                btnDiv.appendChild(copyAllBtn);
+                
+                var copyBase64Btn = document.createElement('button');
+                copyBase64Btn.className = 'secondary';
+                copyBase64Btn.textContent = '📦 复制 Base64 订阅';
+                copyBase64Btn.onclick = function() {
+                    var b64 = safeBase64Encode(allLinks.join('\\n'));
+                    if (b64) { copyToClipboard(b64); log('Base64 订阅已复制', 'success'); }
+                };
+                btnDiv.appendChild(copyBase64Btn);
+                
+                resultDiv.appendChild(btnDiv);
+            }
             
             log('已生成 ' + allLinks.length + ' 个中转链接', 'success');
         }
@@ -573,7 +676,7 @@ node.example.com:8443
                         // 旧格式 base64
                         var decoded = safeBase64Decode(ssPart);
                         if (decoded) {
-                            var match = decoded.match(/@([^:]+):(\d+)/);
+                            var match = decoded.match(/@([^:]+):(\\d+)/);
                             if (match) {
                                 result.host = match[1];
                                 result.port = match[2];
@@ -593,7 +696,7 @@ node.example.com:8443
                             result.host = parts[0];
                             result.port = parts[1];
                         }
-                        var remarkMatch = ssrData.match(/remarks=([^&]+)/);
+                        var remarkMatch = ssrData.match(/remarks=([^\&]+)/);
                         if (remarkMatch) {
                             result.name = safeBase64Decode(remarkMatch[1]) || 'SSR节点';
                         }
@@ -645,11 +748,11 @@ node.example.com:8443
                 }
                 
                 // 纯 IP:Port 格式
-                if (/^[\d\.\[\]:a-fA-F]+$/.test(line) || line.match(/^[a-zA-Z0-9\.\-]+:\d+$/)) {
+                if (/^[\\d\\.\\[\\]:a-fA-F]+$/.test(line) || line.match(/^[a-zA-Z0-9\\.\\-]+:\\d+$/)) {
                     result.type = 'raw';
                     if (line.indexOf('[') === 0) {
                         // IPv6
-                        var match = line.match(/^\[([^\]]+)\]:?(\d*)$/);
+                        var match = line.match(/^\\[([^\\]]+)\\]:?(\\d*)$/);
                         if (match) {
                             result.host = match[1];
                             result.port = match[2] || '443';
@@ -672,6 +775,8 @@ node.example.com:8443
         
         function convertSubscription() {
             var input = document.getElementById('subConvertInput').value.trim();
+            var outputFormat = document.getElementById('convertFormat').value;
+            
             if (!input) {
                 showToast('请输入订阅链接');
                 return;
@@ -683,7 +788,6 @@ node.example.com:8443
             // 尝试 Base64 解码
             var lines = [];
             if (!input.includes('://') && !input.includes(':')) {
-                // 可能是 Base64 编码的订阅
                 var decoded = safeBase64Decode(input);
                 if (decoded && decoded.includes('://')) {
                     lines = decoded.split('\\n').filter(function(l) { return l.trim(); });
@@ -703,17 +807,18 @@ node.example.com:8443
                 if (parsed && parsed.host) {
                     stats[parsed.type] = (stats[parsed.type] || 0) + 1;
                     
-                    // 生成中转链接
+                    // 生成中转 VLESS 链接
                     var relayLink = 'vless://' + CONFIG.uuid + '@' + CONFIG.host + ':443?' +
                         'encryption=none&security=tls&sni=' + CONFIG.host +
                         '&fp=chrome&type=ws&host=' + CONFIG.host +
                         '&path=' + encodeURIComponent('/?ed=2048&proxyip=' + parsed.host + ':' + parsed.port) +
-                        '#中转-' + parsed.name;
+                        '#' + encodeURIComponent('中转-' + parsed.name);
                     
                     converted.push({
                         type: parsed.type.toUpperCase(),
                         name: parsed.name,
-                        original: parsed.host + ':' + parsed.port,
+                        host: parsed.host,
+                        port: parsed.port,
                         link: relayLink
                     });
                 } else {
@@ -740,32 +845,115 @@ node.example.com:8443
             
             log('解析完成: ' + statsText.join(', ') + (stats.failed > 0 ? ' (失败:' + stats.failed + ')' : ''), 'success');
             
-            resultDiv.innerHTML = '<div style="color:var(--neon-primary); margin-bottom:10px;">✅ 已转换 ' + converted.length + ' 个节点 [' + statsText.join(' | ') + ']</div>';
+            // 根据格式生成输出
+            var outputContent = '';
+            var formatName = '';
             
-            var allLinks = [];
+            if (outputFormat === 'vless') {
+                // VLESS 链接格式
+                formatName = 'VLESS 链接';
+                outputContent = converted.map(function(c) { return c.link; }).join('\\n');
+                
+            } else if (outputFormat === 'clash') {
+                // Clash 配置
+                formatName = 'Clash 配置';
+                var clashProxies = converted.map(function(c, i) {
+                    return '  - name: "中转-' + c.name + '"\\n' +
+                           '    type: vless\\n' +
+                           '    server: ' + CONFIG.host + '\\n' +
+                           '    port: 443\\n' +
+                           '    uuid: ' + CONFIG.uuid + '\\n' +
+                           '    tls: true\\n' +
+                           '    skip-cert-verify: false\\n' +
+                           '    servername: ' + CONFIG.host + '\\n' +
+                           '    network: ws\\n' +
+                           '    ws-opts:\\n' +
+                           '      path: "/?ed=2048&proxyip=' + c.host + ':' + c.port + '"\\n' +
+                           '      headers:\\n' +
+                           '        Host: ' + CONFIG.host;
+                });
+                outputContent = 'proxies:\\n' + clashProxies.join('\\n');
+                
+            } else if (outputFormat === 'v2ray') {
+                // V2Ray JSON 配置
+                formatName = 'V2Ray JSON';
+                var v2rayOutbounds = converted.map(function(c) {
+                    return {
+                        tag: '中转-' + c.name,
+                        protocol: 'vless',
+                        settings: {
+                            vnext: [{
+                                address: CONFIG.host,
+                                port: 443,
+                                users: [{ id: CONFIG.uuid, encryption: 'none' }]
+                            }]
+                        },
+                        streamSettings: {
+                            network: 'ws',
+                            security: 'tls',
+                            tlsSettings: { serverName: CONFIG.host },
+                            wsSettings: { path: '/?ed=2048&proxyip=' + c.host + ':' + c.port, headers: { Host: CONFIG.host } }
+                        }
+                    };
+                });
+                outputContent = JSON.stringify({ outbounds: v2rayOutbounds }, null, 2);
+                
+            } else if (outputFormat === 'surge') {
+                // Surge 配置
+                formatName = 'Surge 配置';
+                var surgeLines = converted.map(function(c, i) {
+                    return '中转-' + c.name + ' = vmess, ' + CONFIG.host + ', 443, username=' + CONFIG.uuid + ', ws=true, ws-path=/?ed=2048&proxyip=' + c.host + ':' + c.port + ', tls=true, sni=' + CONFIG.host;
+                });
+                outputContent = '[Proxy]\\n' + surgeLines.join('\\n');
+                
+            } else if (outputFormat === 'base64') {
+                // Base64 订阅
+                formatName = 'Base64 订阅';
+                var allLinks = converted.map(function(c) { return c.link; }).join('\\n');
+                outputContent = safeBase64Encode(allLinks);
+            }
             
-            converted.forEach(function(item) {
-                allLinks.push(item.link);
-                var div = document.createElement('div');
-                div.className = 'relay-item';
-                div.innerHTML = '<div style="flex:1;">' +
-                    '<div class="relay-name"><span style="background:rgba(0,255,157,0.2);padding:2px 6px;border-radius:3px;font-size:0.7rem;margin-right:8px;">' + item.type + '</span>' + item.name + '</div>' +
-                    '<div class="relay-url">' + item.original + '</div>' +
-                    '</div>' +
-                    '<button onclick="copyToClipboard(\\'' + item.link.replace(/'/g, "\\'") + '\\')">复制</button>';
-                resultDiv.appendChild(div);
-            });
+            // 显示结果
+            resultDiv.innerHTML = '<div style="color:var(--neon-primary); margin-bottom:10px;">✅ 已转换 ' + converted.length + ' 个节点为 ' + formatName + ' [' + statsText.join(' | ') + ']</div>';
             
-            // 添加批量操作按钮
+            // 输出配置框
+            var outputBox = document.createElement('div');
+            outputBox.style.cssText = 'background:rgba(0,0,0,0.5); border:1px solid #333; padding:12px; border-radius:4px; font-family:monospace; font-size:0.8rem; white-space:pre-wrap; word-break:break-all; max-height:300px; overflow-y:auto; color:var(--neon-primary);';
+            outputBox.textContent = outputContent;
+            resultDiv.appendChild(outputBox);
+            
+            // 复制按钮
             var btnDiv = document.createElement('div');
             btnDiv.style.cssText = 'margin-top:15px; display:flex; gap:10px; flex-wrap:wrap;';
-            btnDiv.innerHTML = '<button class="secondary" onclick="copyToClipboard(\\'' + allLinks.join('\\n').replace(/'/g, "\\'") + '\\')">📋 复制全部链接</button>' +
-                '<button class="secondary" onclick="copyToClipboard(\\'' + btoa(allLinks.join('\\n')).replace(/'/g, "\\'") + '\\')">📦 复制 Base64 订阅</button>';
+            
+            var copyBtn = document.createElement('button');
+            copyBtn.className = 'secondary';
+            copyBtn.textContent = '📋 复制 ' + formatName;
+            copyBtn.onclick = function() { 
+                copyToClipboard(outputContent); 
+                log(formatName + ' 已复制到剪贴板', 'success');
+            };
+            btnDiv.appendChild(copyBtn);
+            
+            // 如果不是 Base64，提供 Base64 订阅选项
+            if (outputFormat !== 'base64') {
+                var b64Btn = document.createElement('button');
+                b64Btn.className = 'secondary';
+                b64Btn.textContent = '📦 复制 Base64 订阅';
+                b64Btn.onclick = function() {
+                    var allLinks = converted.map(function(c) { return c.link; }).join('\\n');
+                    var b64 = safeBase64Encode(allLinks);
+                    if (b64) { copyToClipboard(b64); log('Base64 订阅已复制', 'success'); }
+                };
+                btnDiv.appendChild(b64Btn);
+            }
+            
             resultDiv.appendChild(btnDiv);
         }
 
 
         // ===================== Matrix 背景效果 =====================
+
 
         (function initMatrix() {
             var canvas = document.getElementById('matrixCanvas');
