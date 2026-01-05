@@ -116,6 +116,34 @@ function getBestBackupIP(workerRegion = '') {
     return backupIPs[Math.floor(Math.random() * backupIPs.length)];
 }
 
+// 解析地址和端口（支持 IPv4、IPv6、域名）
+function parseAddressAndPort(input) {
+    // IPv6 格式: [2001:db8::1]:443
+    if (input.includes('[') && input.includes(']')) {
+        const match = input.match(/^\[([^\]]+)\](?::(\d+))?$/);
+        if (match) {
+            return {
+                address: match[1],
+                port: match[2] ? parseInt(match[2], 10) : null
+            };
+        }
+    }
+
+    // 普通格式: host:port
+    const lastColonIndex = input.lastIndexOf(':');
+    if (lastColonIndex > 0) {
+        const address = input.substring(0, lastColonIndex);
+        const portStr = input.substring(lastColonIndex + 1);
+        const port = parseInt(portStr, 10);
+
+        if (!isNaN(port) && port > 0 && port <= 65535) {
+            return { address, port };
+        }
+    }
+
+    return { address: input, port: null };
+}
+
 // ==================== VLESS 协议解析 ====================
 function parseVlessHeader(buffer) {
     if (buffer.byteLength < 24) {
@@ -254,14 +282,56 @@ async function handleWebSocket(ws, req) {
                     }
                 }
 
-                console.log(`[TCP] 连接到 ${targetHost}:${targetPort}`);
+                // 详细日志
+                console.log(`[RELAY] 模式: ${relayIP ? '🔄 中转' : '📡 直连'}`);
+                console.log(`[RELAY] 原始目标: ${addressValue}:${port}`);
+                console.log(`[RELAY] 实际目标: ${targetHost}:${targetPort}`);
 
-                // 建立 TCP 连接
+                // 带超时和故障转移的连接函数
+                const CONNECT_TIMEOUT = 10000; // 10秒超时
+
+                async function connectWithTimeout(host, port) {
+                    const socket = rawConnect({ hostname: host, port: port });
+                    const timeout = new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('连接超时')), CONNECT_TIMEOUT)
+                    );
+                    await Promise.race([socket.opened, timeout]);
+                    return socket;
+                }
+
+                // 带故障转移的连接
+                async function connectWithFallback(primaryHost, primaryPort, isRelay) {
+                    try {
+                        console.log(`[TCP] 尝试连接 ${primaryHost}:${primaryPort}...`);
+                        return await connectWithTimeout(primaryHost, primaryPort);
+                    } catch (e) {
+                        console.log(`[TCP] 主连接失败: ${e.message}`);
+
+                        // 如果是中转模式且失败，不进行故障转移（用户指定了特定地址）
+                        if (isRelay) {
+                            console.log(`[TCP] 中转模式，不进行故障转移`);
+                            throw e;
+                        }
+
+                        // 尝试备用IP
+                        const backup = getBestBackupIP(currentWorkerRegion);
+                        if (backup && (backup.domain !== primaryHost)) {
+                            console.log(`[TCP] 尝试备用IP: ${backup.domain}:${backup.port}`);
+                            try {
+                                return await connectWithTimeout(backup.domain, backup.port);
+                            } catch (e2) {
+                                console.log(`[TCP] 备用IP也失败: ${e2.message}`);
+                                throw e2;
+                            }
+                        }
+                        throw e;
+                    }
+                }
+
+                // 建立 TCP 连接（带故障转移）
                 try {
-                    remoteSocket = connect({ hostname: targetHost, port: targetPort });
-
-                    await remoteSocket.opened;
-                    console.log('[TCP] 连接成功');
+                    remoteSocket = await connectWithFallback(targetHost, targetPort, !!relayIP);
+                    console.log('[TCP] ✅ 连接成功');
 
                     // 发送 VLESS 响应头
                     ws.send(vlessResponseHeader);
@@ -293,10 +363,11 @@ async function handleWebSocket(ws, req) {
                     })();
 
                 } catch (e) {
-                    console.error('[TCP] 连接失败:', e.message);
+                    console.error('[TCP] ❌ 连接失败:', e.message);
                     ws.close();
                     return;
                 }
+
 
             } else {
                 // 后续消息直接转发
@@ -514,3 +585,30 @@ server.listen(PORT, HOST, () => {
     console.log(`[访问] UI 面板: http://localhost:${PORT}/${at}/`);
     console.log('================================================');
 });
+
+// ==================== 优雅关闭处理 ====================
+function gracefulShutdown(signal) {
+    console.log(`\n[关闭] 收到 ${signal} 信号，正在优雅关闭...`);
+
+    // 关闭 WebSocket 服务器
+    wss.clients.forEach((client) => {
+        client.close();
+    });
+
+    // 关闭 HTTP 服务器
+    server.close(() => {
+        console.log('[关闭] HTTP 服务器已停止');
+        console.log('[关闭] 服务已完全关闭');
+        process.exit(0);
+    });
+
+    // 设置超时强制退出，防止卡住
+    setTimeout(() => {
+        console.log('[关闭] 超时，强制退出...');
+        process.exit(0);
+    }, 5000);
+}
+
+// 监听终止信号
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

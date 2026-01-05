@@ -6,14 +6,10 @@
     "private": true,
     "scripts": {
         "start": "node src/server.js",
-        "dev": "node --watch src/server.js",
-        "wrangler": "wrangler dev --local --host 0.0.0.0 --port 8787 src/index.js"
+        "dev": "node --watch src/server.js"
     },
     "dependencies": {
         "ws": "^8.16.0"
-    },
-    "devDependencies": {
-        "wrangler": "^3.19.0"
     },
     "engines": {
         "node": ">=18.0.0"
