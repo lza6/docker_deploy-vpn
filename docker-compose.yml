@@ -6,7 +6,7 @@ services:
     container_name: cyber-proxy-v3
     restart: unless-stopped
     ports:
-      - "8787:8787"
+      - "8080:8080"
     environment:
       # ===== 必须配置 =====
       # 您的 UUID（用户标识）
@@ -22,13 +22,13 @@ services:
       # 自定义路径别名（可选）
       # - PATH_ALIAS=mypath
       
-      # 端口（通常不需要修改）
-      - PORT=8787
+      # 端口（与 Zeabur 等平台兼容）
+      - PORT=8080
       - HOST=0.0.0.0
 
-    # 健康检查
+    # 健康检查（使用 node，因为 alpine 无 wget）
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8787/"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3
