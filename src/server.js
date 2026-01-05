@@ -491,7 +491,7 @@ function handleHttpRequest(req, res) {
 }
 
 // ==================== 服务器启动 ====================
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 8787;
 const HOST = process.env.HOST || '0.0.0.0';
 
 const server = http.createServer(handleHttpRequest);
